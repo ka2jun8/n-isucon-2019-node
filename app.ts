@@ -1,30 +1,27 @@
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 const fastify = require('fastify')({
     logger: true
 });
+
 const fastifyStatic = require("fastify-static");
 const fastifyMysql = require("fastify-mysql");
 const fastifyCookie = require("fastify-cookie");
 const fastifyMultipart = require('fastify-multipart');
+
 const path = require("path");
 const child_process = require("child_process");
 const util = require("util");
 const fs = require('fs');
 const execFile = util.promisify(child_process.execFile);
 const execCommand = util.promisify(child_process.exec);
+
 const myUtil = require('./utils/utility');
+
 //// fastify registration
+
 fastify.register(fastifyStatic, {
     root: path.join(__dirname, "public"),
 });
+
 fastify.register(fastifyMysql, {
     host: process.env.MYSQL_HOST,
     port: 3306,
@@ -34,62 +31,71 @@ fastify.register(fastifyMysql, {
     promise: true,
     connectionLimit: 1024,
 });
+
 fastify.register(fastifyCookie);
 fastify.register(fastifyMultipart);
+
 //// Helper functions
-function getDbConn() {
-    return __awaiter(this, void 0, void 0, function* () {
-        return fastify.mysql.getConnection();
-    });
-}
-;
-function getPasswordhash(salt, password) {
-    return __awaiter(this, void 0, void 0, function* () {
-        let str = password + salt;
-        for (const _ of Array(1)) {
-            const cmd = 'echo -n ' + str + ' | openssl sha256';
-            const res = yield execCommand(cmd);
-            str = res.stdout.split(' ')[1].trim();
-        }
-        return str;
-    });
-}
-;
+
+async function getDbConn() {
+    return fastify.mysql.getConnection();
+};
+
+async function getPasswordhash(salt, password) {
+    let str = password + salt;
+    for (const _ of Array(1)) {
+        const cmd = 'echo -n ' + str + ' | openssl sha256';
+        const res = await execCommand(cmd);
+        str = res.stdout.split(' ')[1].trim();
+    }
+    return str;
+};
+
 function isEmpty(property) {
     return !(property || property === '');
-}
-;
+};
+
 function loginRequired(request, reply, done) {
     if (!request.cookies.username) {
         return reply.type("application/json").code(401).send("");
     }
     done();
-}
-;
+};
+
 //// Routes
-fastify.post('/users', (request, reply) => __awaiter(this, void 0, void 0, function* () {
+
+fastify.post('/users', async (request, reply) => {
     if (isEmpty(request.body.username) || isEmpty(request.body.password)) {
         return reply.type("application/json").code(400).send("");
     }
+
     const username = request.body.username;
     const password = request.body.password;
-    const conn = yield getDbConn();
+
+    const conn = await getDbConn();
+
     const sql = fastify.mysql.format('SELECT * FROM users WHERE username = ?', [username]);
-    const [rows] = yield conn.query(sql);
+    const [rows] = await conn.query(sql);
     fastify.log.info(sql);
+
     if (rows.length > 0) {
         return reply.type("application/json").code(409).send("");
     }
+
     const salt = myUtil.getSalt();
-    const hash = yield getPasswordhash(salt, password);
+    const hash = await getPasswordhash(salt, password);
     const currentTime = new Date();
+
     let newUser;
     try {
-        const insertSql = fastify.mysql.format('INSERT INTO users (username, password_hash, salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?);', [username, hash, salt, currentTime, currentTime]);
-        const [insertedRows] = yield conn.query(insertSql);
+        const insertSql = fastify.mysql.format('INSERT INTO users (username, password_hash, salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?);',
+            [username, hash, salt, currentTime, currentTime]);
+        const [insertedRows] = await conn.query(insertSql);
         const lastUserId = insertedRows.insertId;
         fastify.log.info(insertSql);
-        yield conn.commit();
+
+        await conn.commit();
+
         newUser = {
             id: lastUserId,
             username,
@@ -97,110 +103,125 @@ fastify.post('/users', (request, reply) => __awaiter(this, void 0, void 0, funct
             updated_at: currentTime,
         };
         return reply.code(201).send(newUser);
-    }
-    catch (e) {
+    } catch (e) {
         return reply.type("application/json").code(500).send("");
         fastify.log.info(e);
-    }
-    finally {
+    } finally {
         conn.release();
     }
-}));
-fastify.get('/users/:username', (request, reply) => __awaiter(this, void 0, void 0, function* () {
-    const conn = yield getDbConn();
-    const sql = fastify.mysql.format('SELECT id, username, created_at, updated_at FROM users WHERE username = ?', [request.params.username]);
-    const [rows] = yield conn.query(sql);
+});
+
+fastify.get('/users/:username', async (request, reply) => {
+    const conn = await getDbConn();
+
+    const sql = fastify.mysql.format('SELECT id, username, created_at, updated_at FROM users WHERE username = ?',
+        [request.params.username]);
+    const [rows] = await conn.query(sql);
     fastify.log.info(sql);
     conn.release();
+
     if (rows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
+
     return reply.code(200).send({
         id: rows[0].id,
         username: rows[0].username,
         created_at: rows[0].created_at,
         updated_at: rows[0].updated_at,
     });
-}));
-fastify.patch('/users/:username', { preHandler: loginRequired }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+});
+
+fastify.patch('/users/:username', { preHandler: loginRequired }, async (request, reply) => {
     if (isEmpty(request.body.username) && isEmpty(request.body.password)) {
         return reply.type("application/json").code(400).send("");
+
     }
     const requestedUsername = request.body.username;
     const password = request.body.password;
-    const conn = yield getDbConn();
+
+    const conn = await getDbConn();
+
     const sql = fastify.mysql.format('SELECT * FROM users WHERE username = ?', [request.params.username]);
-    const [rows] = yield conn.query(sql);
+    const [rows] = await conn.query(sql);
     fastify.log.info(sql);
+
     if (rows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
+
     if (rows[0].id !== parseInt(request.cookies.user_id)) {
         return reply.type("application/json").code(403).send("");
     }
+
     let newUsername;
     if (isEmpty(requestedUsername)) {
         newUsername = rows[0].username;
-    }
-    else {
+    } else {
         const sql = fastify.mysql.format('SELECT * FROM users WHERE username = ?', [requestedUsername]);
-        const [newUserRows] = yield conn.query(sql);
+        const [newUserRows] = await conn.query(sql);
         fastify.log.info(sql);
+
         if (newUserRows.length > 0) {
             return reply.type("application/json").code(409).send("");
-        }
-        else {
+        } else {
             newUsername = requestedUsername;
         }
     }
+
     let newSalt, newPasswordHash;
     if (password === '') {
         newSalt = rows[0].salt;
         newPasswordHash = rows[0].password_hash;
-    }
-    else {
+    } else {
         newSalt = myUtil.getSalt();
-        newPasswordHash = yield getPasswordhash(newSalt, password);
+        newPasswordHash = await getPasswordhash(newSalt, password);
     }
+
     try {
-        const updateSql = fastify.mysql.format('UPDATE users SET username=?, password_hash=?, salt=?, updated_at=? WHERE id=?', [newUsername, newPasswordHash, newSalt, new Date(), request.cookies.user_id]);
-        yield conn.query(updateSql);
+        const updateSql = fastify.mysql.format('UPDATE users SET username=?, password_hash=?, salt=?, updated_at=? WHERE id=?',
+            [newUsername, newPasswordHash, newSalt, new Date(), request.cookies.user_id]);
+        await conn.query(updateSql);
         fastify.log.info(updateSql);
-        yield conn.commit();
+        await conn.commit();
+
         const selectSql = fastify.mysql.format('SELECT id, username, created_at, updated_at FROM users WHERE id= ?', [request.cookies.user_id]);
-        const [updatedUserRows] = yield conn.query(selectSql);
+        const [updatedUserRows] = await conn.query(selectSql);
         fastify.log.info(selectSql);
         return reply.send(updatedUserRows[0]);
-    }
-    catch (e) {
+    } catch (e) {
         fastify.log.error(e);
-    }
-    finally {
+    } finally {
         conn.release();
     }
-}));
-fastify.delete('/users/:username', { preHandler: loginRequired }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
-    const conn = yield getDbConn();
+});
+
+fastify.delete('/users/:username', { preHandler: loginRequired }, async (request, reply) => {
+    const conn = await getDbConn();
+
     const sql = fastify.mysql.format('SELECT * FROM users WHERE username = ?', [request.params.username]);
-    const [rows] = yield conn.query(sql);
+    const [rows] = await conn.query(sql);
     fastify.log.info(sql);
+
     if (rows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
+
     if (parseInt(request.cookies.user_id) !== rows[0].id) {
         return reply.type("application/json").code(403).send("");
     }
+
     try {
         const delSql = fastify.mysql.format('DELETE FROM users WHERE id=?', [rows[0].id]);
-        yield conn.query(delSql);
+        await conn.query(delSql);
         fastify.log.info(delSql);
-        yield conn.commit();
+        await conn.commit();
         conn.release();
-    }
-    catch (e) {
+    } catch(e) {
         fastify.log.error(e);
     }
     conn.release();
+
     return reply.setCookie("user_id", "", {
         path: "/",
         expires: new Date(0),
@@ -208,113 +229,135 @@ fastify.delete('/users/:username', { preHandler: loginRequired }, (request, repl
         path: "/",
         expires: new Date(0),
     }).code(204).send("");
-}));
-fastify.post('/items', { preHandler: loginRequired }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+});
+
+fastify.post('/items', { preHandler: loginRequired }, async (request, reply) => {
     if (isEmpty(request.body.title) || isEmpty(request.body.body)) {
         return reply.type("application/json").code(400).send("");
     }
-    const conn = yield getDbConn();
+
+    const conn = await getDbConn();
     const currentTime = new Date();
+
     try {
-        const insertSql = fastify.mysql.format('INSERT INTO items (user_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?);', [request.cookies.user_id, request.body.title, request.body.body,
-            currentTime, currentTime]);
-        const [insertedRows] = yield conn.query(insertSql);
+        const insertSql = fastify.mysql.format('INSERT INTO items (user_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?);',
+            [request.cookies.user_id, request.body.title, request.body.body,
+                currentTime, currentTime]);
+        const [insertedRows] = await conn.query(insertSql);
         const lastItemId = insertedRows.insertId;
         fastify.log.info(insertSql);
-        yield conn.commit();
+        await conn.commit();
+
         const selectSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [lastItemId]);
-        const [selectedRows] = yield conn.query(selectSql);
+        const [selectedRows] = await conn.query(selectSql);
         fastify.log.info(selectSql);
+
         if (isEmpty(selectedRows[0]['likes'])) {
             selectedRows[0]['likes'] = '';
         }
+
         selectedRows[0]['username'] = request.cookies.username;
         delete selectedRows[0]['user_id'];
+
         return reply.code(201).send(selectedRows[0]);
-    }
-    catch (e) {
+    } catch (e) {
         fastify.log.error(e);
-    }
-    finally {
+    } finally {
         conn.release();
     }
-}));
-fastify.get('/items/:item_id', (request, reply) => __awaiter(this, void 0, void 0, function* () {
-    const conn = yield getDbConn();
+});
+
+fastify.get('/items/:item_id', async (request, reply) => {
+    const conn = await getDbConn();
     try {
         const selectSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [request.params.item_id]);
-        const [selectedRows] = yield conn.query(selectSql);
+        const [selectedRows] = await conn.query(selectSql);
         fastify.log.info(selectSql);
+
         if (selectedRows.length === 0) {
             return reply.type("application/json").code(404).send("");
         }
+
         if (isEmpty(selectedRows[0]['likes'])) {
             selectedRows[0]['likes'] = '';
         }
+
         const selectUserSql = fastify.mysql.format('SELECT * FROM users WHERE id=?', [selectedRows[0]['user_id']]);
-        const [selectedUserRows] = yield conn.query(selectUserSql);
+        const [selectedUserRows] = await conn.query(selectUserSql);
         fastify.log.info(selectUserSql);
-        selectedRows[0]['username'] = selectedUserRows[0]['username'];
+
+        selectedRows[0]['username']  = selectedUserRows[0]['username'];
         delete selectedRows[0]['user_id'];
+
         return reply.send(selectedRows[0]);
-    }
-    catch (e) {
+    } catch (e) {
         fastify.log.error(e);
-    }
-    finally {
+    } finally {
         conn.release();
     }
-}));
-fastify.patch('/items/:item_id', { preHandler: loginRequired }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+});
+
+fastify.patch('/items/:item_id', { preHandler: loginRequired }, async (request, reply) => {
     if (isEmpty(request.body.title) && isEmpty(request.body.body)) {
         return reply.type("application/json").code(400).send("");
     }
-    const conn = yield getDbConn();
+
+    const conn = await getDbConn();
     const selectItemSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [request.params.item_id]);
-    const [selectedItemRows] = yield conn.query(selectItemSql);
+    const [selectedItemRows] = await conn.query(selectItemSql);
     fastify.log.info(selectItemSql);
+
     if (selectedItemRows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
+
     if (parseInt(request.cookies.user_id) !== selectedItemRows[0]['user_id']) {
         return reply.type("application/json").code(403).send("");
     }
+
     let title, body;
     if (isEmpty(request.body.title)) {
         title = selectedItemRows[0]['title'];
-    }
-    else {
+    } else {
         title = request.body.title;
     }
+
     if (isEmpty(request.body.body)) {
         body = selectedItemRows[0]['body'];
-    }
-    else {
+    } else {
         body = request.body.body;
     }
-    const updateItemSql = fastify.mysql.format('UPDATE items SET title=?, body=?, updated_at=? WHERE id = ?', [title, body, new Date(), request.params.item_id]);
-    yield conn.query(updateItemSql);
+
+    const updateItemSql = fastify.mysql.format('UPDATE items SET title=?, body=?, updated_at=? WHERE id = ?',
+        [title, body, new Date(), request.params.item_id]);
+    await conn.query(updateItemSql);
     fastify.log.info(updateItemSql);
-    yield conn.commit();
+    await conn.commit();
+
     const selectItemAfterUpdateSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [request.params.item_id]);
-    const [updatedItemRows] = yield conn.query(selectItemAfterUpdateSql);
+    const [updatedItemRows] = await conn.query(selectItemAfterUpdateSql);
     fastify.log.info(selectItemAfterUpdateSql);
+
     conn.release();
+
     if (isEmpty(updatedItemRows['likes'])) {
         updatedItemRows[0]['likes'] = '';
     }
+
     updatedItemRows[0]['username'] = request.cookies.username;
     delete updatedItemRows[0]['user_id'];
+
     return reply.send(updatedItemRows[0]);
-}));
-fastify.get('/items', (request, reply) => __awaiter(this, void 0, void 0, function* () {
+});
+
+fastify.get('/items', async (request, reply) => {
     const ITEM_LIMIT = 10;
+
     let page, sorting, offset;
     if (isEmpty(request.query.page)) {
         page = 0;
         offset = 0;
-    }
-    else {
+    } else {
         // Should validate here but we just omit this time.
         page = request.query.page;
         offset = parseInt(page) * ITEM_LIMIT;
@@ -322,12 +365,15 @@ fastify.get('/items', (request, reply) => __awaiter(this, void 0, void 0, functi
     if (!isEmpty(request.query.sort)) {
         sorting = request.query.sort;
     }
-    const conn = yield getDbConn();
+
+    const conn = await getDbConn();
+
     // let's return early if there's no items;
     const selectSql = fastify.mysql.format('SELECT * FROM items');
-    const [selectedRows] = yield conn.query(selectSql);
+    const [selectedRows] = await conn.query(selectSql);
     fastify.log.info(selectSql);
     const count = selectedRows.length;
+
     if (selectedRows.length === 0) {
         conn.release();
         return reply.code(200).send({
@@ -335,82 +381,90 @@ fastify.get('/items', (request, reply) => __awaiter(this, void 0, void 0, functi
             items: []
         });
     }
+
     const selectItemsSql = fastify.mysql.format('SELECT * FROM items');
-    let [selectedItemsRows] = yield conn.query(selectItemsSql);
+    let [selectedItemsRows] = await conn.query(selectItemsSql);
     fastify.log.info(selectItemsSql);
+
     if (sorting === 'like') {
         selectedItemsRows.sort((a, b) => {
             let a_likes_count, b_likes_count;
             if (isEmpty(a['likes'])) {
                 a_likes_count = 0;
-            }
-            else {
+            } else {
                 a_likes_count = a['likes'].split(',').length;
             }
             if (isEmpty(b['likes'])) {
                 b_likes_count = 0;
-            }
-            else {
+            } else {
                 b_likes_count = b['likes'].split(',').length;
             }
-            if (a_likes_count > b_likes_count)
-                return -1;
-            if (a_likes_count < b_likes_count)
-                return 1;
+
+            if (a_likes_count > b_likes_count) return -1;
+            if (a_likes_count < b_likes_count) return 1;
             return 0;
         });
         selectedItemsRows = selectedItemsRows.slice(0, ITEM_LIMIT);
-    }
-    else {
+    } else {
         selectedItemsRows.sort((a, b) => {
             const a_date = new Date(a['created_at']);
             const b_date = new Date(b['created_at']);
-            if (a_date > b_date)
-                return -1;
-            if (a_date < b_date)
-                return 1;
-            return 0;
+
+            if (a_date > b_date) return -1;
+            if (a_date < b_date) return 1;
+            return 0
         });
     }
+
     for (let [i, itemRow] of selectedItemsRows.entries()) {
         const selectUserSql = fastify.mysql.format('SELECT * FROM users WHERE id = ?', itemRow['user_id']);
-        const [selectedUsersRow] = yield conn.query(selectUserSql);
+        const [selectedUsersRow] = await conn.query(selectUserSql);
         selectedItemsRows[i]['username'] = selectedUsersRow[0]['username'];
+
         // remove unnecessary properties
         delete selectedItemsRows[i]['user_id'];
         delete selectedItemsRows[i]['likes'];
         delete selectedItemsRows[i]['body'];
         delete selectedItemsRows[i]['updated_at'];
     }
+
     conn.release();
+
     return reply.code(200).send({
         count,
         items: selectedItemsRows.slice(offset, offset + ITEM_LIMIT),
     });
-}));
-fastify.delete('/items/:item_id', { preHandler: loginRequired }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
-    const conn = yield getDbConn();
+});
+
+fastify.delete('/items/:item_id', { preHandler: loginRequired }, async (request, reply) => {
+    const conn = await getDbConn();
     const selectItemSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [request.params.item_id]);
-    const [selectedItemRows] = yield conn.query(selectItemSql);
+    const [selectedItemRows] = await conn.query(selectItemSql);
     fastify.log.info(selectItemSql);
+
     if (selectedItemRows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
+
     if (parseInt(request.cookies.user_id) !== selectedItemRows[0]['user_id']) {
         return reply.type("application/json").code(403).send("");
     }
+
     const deleteItemSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [request.params.item_id]);
-    yield conn.query(deleteItemSql);
+    await conn.query(deleteItemSql);
     fastify.log.info(deleteItemSql);
-    yield conn.commit();
+    await conn.commit();
     conn.release();
+
     return reply.code(204).send("");
-}));
-fastify.post('/items/:item_id/likes', { preHandler: loginRequired }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
-    const conn = yield getDbConn();
+});
+
+fastify.post('/items/:item_id/likes', { preHandler: loginRequired }, async (request, reply) => {
+    const conn = await getDbConn();
     const selectItemSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [request.params.item_id]);
-    const [selectedItemRows] = yield conn.query(selectItemSql);
+    const [selectedItemRows] = await conn.query(selectItemSql);
     fastify.log.info(selectItemSql);
+
     if (selectedItemRows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
@@ -418,269 +472,340 @@ fastify.post('/items/:item_id/likes', { preHandler: loginRequired }, (request, r
     let likesStr;
     if (isEmpty(selectedItemRows[0]['likes'])) {
         likesStr = username;
-    }
-    else {
+    } else {
         const currentLikeList = selectedItemRows[0]['likes'].split(',');
+
         if (!currentLikeList.includes(username)) {
             currentLikeList.push(username);
         }
+
         likesStr = currentLikeList.join(',');
     }
+
     const updateLikesSql = fastify.mysql.format('UPDATE items SET likes=? WHERE id=?', [likesStr, request.params.item_id]);
-    yield conn.query(updateLikesSql);
+    await conn.query(updateLikesSql);
     fastify.log.info(updateLikesSql);
-    yield conn.commit();
+    await conn.commit();
     conn.release();
+
     return reply.code(204).send();
-}));
-fastify.get('/items/:item_id/likes', (request, reply) => __awaiter(this, void 0, void 0, function* () {
-    const conn = yield getDbConn();
+});
+
+fastify.get('/items/:item_id/likes', async (request, reply) => {
+    const conn = await getDbConn();
     const selectItemSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [request.params.item_id]);
-    const [selectedItemRows] = yield conn.query(selectItemSql);
+    const [selectedItemRows] = await conn.query(selectItemSql);
     fastify.log.info(selectItemSql);
     conn.release();
+
     if (selectedItemRows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
+
     let likesStr, like_count;
     if (isEmpty(selectedItemRows[0]['likes'])) {
         likesStr = '';
         like_count = 0;
-    }
-    else {
+    } else {
         likesStr = selectedItemRows[0]['likes'];
         like_count = likesStr.split(',').length;
     }
+
     return reply.send({
         likes: likesStr,
         like_count,
     });
-}));
-fastify.delete('/items/:item_id/likes', { preHandler: loginRequired }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
-    const conn = yield getDbConn();
+});
+
+fastify.delete('/items/:item_id/likes', { preHandler: loginRequired }, async (request, reply) => {
+    const conn = await getDbConn();
     const selectItemSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [request.params.item_id]);
-    const [selectedItemRows] = yield conn.query(selectItemSql);
+    const [selectedItemRows] = await conn.query(selectItemSql);
     fastify.log.info(selectItemSql);
+
     if (selectedItemRows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
+
     if (isEmpty(selectedItemRows[0]['likes'])) {
         return reply.type("application/json").code(404).send("");
     }
+
     const username = request.cookies.username;
     const currentLikesList = selectedItemRows[0]['likes'].split(',');
+
     if (!currentLikesList.includes(username)) {
         return reply.type("application/json").code(404).send("");
     }
+
     const filteredList = currentLikesList.filter(u => u !== username);
-    const updateLikesSql = fastify.mysql.format('UPDATE items SET likes=? WHERE id=?', [filteredList.join(','), request.params.item_id]);
-    yield conn.query(updateLikesSql);
+
+    const updateLikesSql = fastify.mysql.format('UPDATE items SET likes=? WHERE id=?',
+        [filteredList.join(','), request.params.item_id]);
+    await conn.query(updateLikesSql);
     fastify.log.info(updateLikesSql);
-    yield conn.commit();
+    await conn.commit();
     conn.release();
+
     return reply.code(204).send();
-}));
-fastify.post('/items/:item_id/comments', { preHandler: loginRequired }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
-    const conn = yield getDbConn();
+});
+
+fastify.post('/items/:item_id/comments', { preHandler: loginRequired }, async (request, reply) => {
+    const conn = await getDbConn();
     const selectItemSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [request.params.item_id]);
-    const [selectedItemRows] = yield conn.query(selectItemSql);
+    const [selectedItemRows] = await conn.query(selectItemSql);
     fastify.log.info(selectItemSql);
+
     if (selectedItemRows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
+
     if (isEmpty(request.body.comment)) {
         return reply.type("application/json").code(400).send("");
     }
+
     const selectCommentSql = fastify.mysql.format('SELECT * FROM comments WHERE id=?', [request.params.item_id]);
-    const [selectedCommentRows] = yield conn.query(selectCommentSql);
+    const [selectedCommentRows] = await conn.query(selectCommentSql);
     fastify.log.info(selectCommentSql);
+
     const username = request.cookies.username;
     const commentData = { comment: request.body.comment, username };
+
     if (isEmpty(selectedCommentRows[0])) {
         // first comment
         commentData['comment_id'] = 1;
-        const insertCommentSql = fastify.mysql.format('INSERT INTO comments (id, comment_001) VALUES (?, ?)', [request.params.item_id, JSON.stringify(commentData)]);
-        yield conn.query(insertCommentSql);
+        const insertCommentSql = fastify.mysql.format('INSERT INTO comments (id, comment_001) VALUES (?, ?)',
+            [request.params.item_id, JSON.stringify(commentData)]);
+        await conn.query(insertCommentSql);
         fastify.log.info(insertCommentSql);
-        yield conn.commit();
-    }
-    else {
+        await conn.commit();
+    } else {
         // There are some comments already.
         for (let [key, value] of Object.entries(selectedCommentRows[0])) {
             if (isEmpty((value))) {
                 commentData['comment_id'] = parseInt(key.slice(-3));
-                const updateCommentSql = fastify.mysql.format('UPDATE comments SET ' + key + '=? WHERE id=?', [JSON.stringify(commentData), request.params.item_id]);
-                yield conn.query(updateCommentSql);
+                const updateCommentSql = fastify.mysql.format('UPDATE comments SET ' + key + '=? WHERE id=?',
+                    [JSON.stringify(commentData), request.params.item_id]);
+                await conn.query(updateCommentSql);
                 fastify.log.info(updateCommentSql);
-                yield conn.commit();
+                await conn.commit();
                 break;
             }
         }
     }
+
     conn.release();
     commentData['item_id'] = request.params.item_id;
     return reply.code(201).send(commentData);
-}));
-fastify.get('/items/:item_id/comments', (request, reply) => __awaiter(this, void 0, void 0, function* () {
+});
+
+fastify.get('/items/:item_id/comments', async (request, reply) => {
     const item_id = parseInt(request.params.item_id);
-    const conn = yield getDbConn();
+
+    const conn = await getDbConn();
     const selectItemSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [item_id]);
-    const [selectedItemRows] = yield conn.query(selectItemSql);
+    const [selectedItemRows] = await conn.query(selectItemSql);
     fastify.log.info(selectItemSql);
+
     if (selectedItemRows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
+
     const selectCommentSql = fastify.mysql.format('SELECT * FROM comments WHERE id=?', [item_id]);
-    const [selectedCommentRows] = yield conn.query(selectCommentSql);
+    const [selectedCommentRows] = await conn.query(selectCommentSql);
     fastify.log.info(selectCommentSql);
-    const resData = { item_id };
+
+    const resData = {item_id};
     const itemCommentsExceptNull = [];
     if (isEmpty(selectedCommentRows[0])) {
         resData['comments'] = [];
         return reply.send(resData);
     }
+
     for (let [key, value] of Object.entries(selectedCommentRows[0])) {
         if (key === 'id' || isEmpty(value)) {
             continue;
         }
         itemCommentsExceptNull.push(value);
     }
+
     resData['comments'] = itemCommentsExceptNull;
     conn.release();
     return reply.send(resData);
-}));
-fastify.delete('/items/:item_id/comments/:comment_id', { preHandler: loginRequired }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+});
+
+fastify.delete('/items/:item_id/comments/:comment_id', { preHandler: loginRequired }, async (request, reply) => {
     const item_id = parseInt(request.params.item_id);
     const comment_id = parseInt(request.params.comment_id);
-    const conn = yield getDbConn();
+
+    const conn = await getDbConn();
     const selectItemSql = fastify.mysql.format('SELECT * FROM items WHERE id=?', [item_id]);
-    const [selectedItemRows] = yield conn.query(selectItemSql);
+    const [selectedItemRows] = await conn.query(selectItemSql);
     fastify.log.info(selectItemSql);
+
     if (selectedItemRows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
     const selectCommentSql = fastify.mysql.format('SELECT * FROM comments WHERE id=?', [item_id]);
-    const [selectedCommentRows] = yield conn.query(selectCommentSql);
+    const [selectedCommentRows] = await conn.query(selectCommentSql);
     fastify.log.info(selectCommentSql);
+
     if (isEmpty(selectedCommentRows[0])) {
         return reply.type("application/json").code(404).send("");
     }
+
     for (let [key, value] of Object.entries(selectedCommentRows[0])) {
         if (key === 'id' || isEmpty(value)) {
             continue;
         }
         const comment = value;
         const username = request.cookies.username;
+
         if (parseInt(comment['comment_id']) !== comment_id) {
             continue;
         }
+
         if (comment['username'] !== username) {
             return reply.type("application/json").code(403).send("");
         }
-        const updateCommentSql = fastify.mysql.format('UPDATE comments SET ' + key + '=NULL WHERE id=?', [item_id]);
-        yield conn.query(updateCommentSql);
+
+        const updateCommentSql = fastify.mysql.format('UPDATE comments SET ' + key + '=NULL WHERE id=?',
+            [item_id]);
+        await conn.query(updateCommentSql);
         fastify.log.info(updateCommentSql);
-        yield conn.commit();
+        await conn.commit();
         conn.release();
         return reply.code(204).send("");
     }
+
     conn.release();
     return reply.type("application/json").code(404).send("");
-}));
-fastify.setErrorHandler((error, request, reply) => __awaiter(this, void 0, void 0, function* () {
+});
+
+
+fastify.setErrorHandler(async (error, request, reply) => {
     if (error.code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') {
         return reply.type("application/json").code(400).send("");
     }
-}));
-fastify.post('/users/:username/icon', { preHandler: loginRequired }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
-    const conn = yield getDbConn();
+});
+
+fastify.post('/users/:username/icon', { preHandler: loginRequired }, async (request, reply) => {
+    const conn = await getDbConn();
     const sql = fastify.mysql.format('SELECT * FROM users WHERE username = ?', [request.params.username]);
-    const [rows] = yield conn.query(sql);
+    const [rows] = await conn.query(sql);
     fastify.log.info(sql);
+
     if (request.params.username !== request.cookies.username) {
         conn.release();
         return reply.type("application/json").code(403).send("");
     }
+
     if (rows.length === 0) {
         conn.release();
         return reply.type("application/json").code(404).send("");
     }
+
     const selectIconSql = fastify.mysql.format('SELECT * FROM icon WHERE user_id = ?', [rows[0]['id']]);
-    const [iconRows] = yield conn.query(selectIconSql);
+    const [iconRows] = await conn.query(selectIconSql);
     fastify.log.info(selectIconSql);
+
     if (!isEmpty(iconRows[0])) {
         conn.release();
         return reply.type("application/json").code(409).send("");
     }
+
     const data = [];
     const mp = request.multipart((field, file, filename, encoding, mimetype) => {
         file.on('data', chunk => {
-            data.push(chunk);
+            data.push(chunk)
         });
+
         if (isEmpty(field)) {
             return reply.type("application/json").code(400).send("");
         }
-    }, (err) => __awaiter(this, void 0, void 0, function* () {
+    }, async err => {
         const buf = Buffer.concat(data);
-        const insertIconSql = fastify.mysql.format('INSERT INTO icon (user_id, icon) VALUES (? ,?)', [rows[0]['id'], buf.toString('base64')]);
-        const [iconRows] = yield conn.query(insertIconSql);
-        yield conn.commit();
+
+        const insertIconSql = fastify.mysql.format('INSERT INTO icon (user_id, icon) VALUES (? ,?)',
+            [rows[0]['id'], buf.toString('base64')]);
+
+        const [iconRows] = await conn.query(insertIconSql);
+        await conn.commit();
         fastify.log.info(insertIconSql);
         conn.release();
+
         return reply.code(201).send("");
-    }));
+    });
+
     mp.on('field', function (key, value) {
         // do nothing currently
     });
-}));
-fastify.get('/users/:username/icon', (request, reply) => __awaiter(this, void 0, void 0, function* () {
-    const conn = yield getDbConn();
+});
+
+fastify.get('/users/:username/icon', async (request, reply) => {
+    const conn = await getDbConn();
     const sql = fastify.mysql.format('SELECT * FROM users WHERE username = ?', [request.params.username]);
-    const [rows] = yield conn.query(sql);
+    const [rows] = await conn.query(sql);
     fastify.log.info(sql);
+
     if (rows.length === 0) {
         return reply.type("application/json").code(404).send("");
     }
+
     const selectIconSql = fastify.mysql.format('SELECT * FROM icon WHERE user_id = ?', [rows[0]['id']]);
-    const [iconRows] = yield conn.query(selectIconSql);
+    const [iconRows] = await conn.query(selectIconSql);
+
     if (isEmpty(iconRows[0])) {
         // return reply.sendfile('public/img/default_user_icon.png');
         const stream = fs.createReadStream('public/img/default_user_icon.png');
         return reply.type('image/png').send(stream);
     }
+
     const img = Buffer.from(iconRows[0]['icon'].toString('binary'), 'base64');
     return reply.type("image/png").send(img);
-}));
-fastify.post('/signin', (request, reply) => __awaiter(this, void 0, void 0, function* () {
+});
+
+
+fastify.post('/signin', async (request, reply) => {
     if (isEmpty(request.body.username) || isEmpty(request.body.password)) {
         return reply.type("application/json").code(400).send("");
     }
+
     const username = request.body.username;
     const password = request.body.password;
-    const conn = yield getDbConn();
+
+    const conn = await getDbConn();
+
     const sql = fastify.mysql.format('SELECT * FROM users WHERE username = ?', [username]);
-    const [rows] = yield conn.query(sql);
+    const [rows] = await conn.query(sql);
     fastify.log.info(sql);
+
     if (rows.length === 0) {
         return reply.type("application/json").code(401).send("");
     }
+
     const salt = rows[0].salt;
     const passwordHash = rows[0].password_hash;
-    if ((yield getPasswordhash(salt, password)) !== passwordHash) {
+
+    if (await getPasswordhash(salt, password) !== passwordHash) {
         return reply.type("application/json").code(401).send("");
     }
+
     reply.setCookie('user_id', rows[0].id, {
         path: '/',
     }).setCookie('username', username, {
         path: '/',
     });
+
     conn.release();
     return reply.send({ username });
-}));
-fastify.get('/signout', { preHandler: loginRequired }, (request, reply) => __awaiter(this, void 0, void 0, function* () {
+});
+
+fastify.get('/signout',{preHandler: loginRequired}, async (request, reply) => {
     if (isEmpty(request.cookies.user_id) || isEmpty(request.cookies.username)) {
         return reply.code(401).send("");
     }
+
     return reply.setCookie("user_id", "", {
         path: "/",
         expires: new Date(0),
@@ -688,16 +813,18 @@ fastify.get('/signout', { preHandler: loginRequired }, (request, reply) => __awa
         path: "/",
         expires: new Date(0),
     }).code(204).send();
-}));
-fastify.get("/initialize", (_request, reply) => __awaiter(this, void 0, void 0, function* () {
-    yield child_process.execFile("../common/db/init.sh");
+});
+
+fastify.get("/initialize", async (_request, reply) => {
+    await child_process.execFile("../common/db/init.sh");
     return reply.code(200).send("");
-}));
+});
+
 //// Bootstrap
+
 fastify.listen(5000, '0.0.0.0', err => {
     if (err) {
         fastify.log.error(err);
-        process.exit(1);
-    }
-    ;
+        process.exit(1)
+    };
 });
