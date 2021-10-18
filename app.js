@@ -1,22 +1,45 @@
-const fastify = require('fastify')({
-    logger: true
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
 });
-const fastifyStatic = require("fastify-static");
-const fastifyMysql = require("fastify-mysql");
-const fastifyCookie = require("fastify-cookie");
-const fastifyMultipart = require('fastify-multipart');
-const path = require("path");
-const child_process = require("child_process");
-const util = require("util");
-const fs = require('fs');
-const execFile = util.promisify(child_process.execFile);
-const execCommand = util.promisify(child_process.exec);
-const myUtil = require('./utils/utility');
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const fastify_1 = __importDefault(require("fastify"));
+const fastify = (0, fastify_1.default)({ logger: true });
+const fastify_static_1 = __importDefault(require("fastify-static"));
+const fastify_mysql_1 = __importDefault(require("fastify-mysql"));
+const fastify_cookie_1 = __importDefault(require("fastify-cookie"));
+const fastify_multipart_1 = __importDefault(require("fastify-multipart"));
+const path_1 = __importDefault(require("path"));
+const child_process_1 = __importDefault(require("child_process"));
+const util_1 = __importDefault(require("util"));
+const fs_1 = __importDefault(require("fs"));
+const execFile = util_1.default.promisify(child_process_1.default.execFile);
+const execCommand = util_1.default.promisify(child_process_1.default.exec);
+const myUtil = __importStar(require("./utils/utility"));
 //// fastify registration
-fastify.register(fastifyStatic, {
-    root: path.join(__dirname, "public"),
+fastify.register(fastify_static_1.default, {
+    root: path_1.default.join(__dirname, "public"),
 });
-fastify.register(fastifyMysql, {
+fastify.register(fastify_mysql_1.default, {
     host: process.env.MYSQL_HOST,
     port: 3306,
     user: process.env.MYSQL_USER,
@@ -25,8 +48,8 @@ fastify.register(fastifyMysql, {
     promise: true,
     connectionLimit: 1024,
 });
-fastify.register(fastifyCookie);
-fastify.register(fastifyMultipart);
+fastify.register(fastify_cookie_1.default);
+fastify.register(fastify_multipart_1.default);
 //// Helper functions
 async function getDbConn() {
     return fastify.mysql.getConnection();
@@ -632,7 +655,7 @@ fastify.get('/users/:username/icon', async (request, reply) => {
     const [iconRows] = await conn.query(selectIconSql);
     if (isEmpty(iconRows[0])) {
         // return reply.sendfile('public/img/default_user_icon.png');
-        const stream = fs.createReadStream('public/img/default_user_icon.png');
+        const stream = fs_1.default.createReadStream('public/img/default_user_icon.png');
         return reply.type('image/png').send(stream);
     }
     const img = Buffer.from(iconRows[0]['icon'].toString('binary'), 'base64');
@@ -677,7 +700,7 @@ fastify.get('/signout', { preHandler: loginRequired }, async (request, reply) =>
     }).code(204).send();
 });
 fastify.get("/initialize", async (_request, reply) => {
-    await child_process.execFile("../common/db/init.sh");
+    await child_process_1.default.execFile("../common/db/init.sh");
     return reply.code(200).send("");
 });
 //// Bootstrap

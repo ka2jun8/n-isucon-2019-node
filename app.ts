@@ -1,20 +1,50 @@
-const fastify = require('fastify')({
-    logger: true
-});
+import f from 'fastify'
 
-const fastifyStatic = require("fastify-static");
-const fastifyMysql = require("fastify-mysql");
-const fastifyCookie = require("fastify-cookie");
-const fastifyMultipart = require('fastify-multipart');
+const fastify = f({logger: true});
 
-const path = require("path");
-const child_process = require("child_process");
-const util = require("util");
-const fs = require('fs');
+import fastifyStatic from "fastify-static";
+import fastifyMysql from "fastify-mysql";
+import fastifyCookie from "fastify-cookie";
+import fastifyMultipart from 'fastify-multipart';
+
+import path from "path";
+import child_process from "child_process";
+import util from "util";
+import fs from 'fs';
 const execFile = util.promisify(child_process.execFile);
 const execCommand = util.promisify(child_process.exec);
 
-const myUtil = require('./utils/utility');
+import * as myUtil from './utils/utility';
+
+import { MySQLConnection, MySQLPool, MySQLPromiseConnection, MySQLPromisePool } from 'fastify-mysql'
+
+// if you only pass connectionString
+declare module 'fastify' {
+  interface FastifyInstance {
+    mysql: MySQLPool 
+  }
+}
+
+// if you passed type = 'connection'
+declare module 'fastify' {
+  interface FastifyInstance {
+    mysql: MySQLConnection 
+  }
+}
+
+// if you passed promise = true
+declare module 'fastify' {
+  interface FastifyInstance {
+    mysql: MySQLPromisePool 
+  }
+}
+
+// if you passed promise = true, type = 'connection'
+declare module 'fastify' {
+  interface FastifyInstance {
+    mysql: MySQLPromiseConnection 
+  }
+}
 
 //// fastify registration
 
@@ -684,7 +714,7 @@ fastify.delete('/items/:item_id/comments/:comment_id', { preHandler: loginRequir
 
 
 fastify.setErrorHandler(async (error, request, reply) => {
-    if (error.code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') {
+    if ((error as any).code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') {
         return reply.type("application/json").code(400).send("");
     }
 });
