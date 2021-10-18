@@ -43,7 +43,7 @@ async function getDbConn() {
 
 async function getPasswordhash(salt, password) {
     let str = password + salt;
-    for (const _ of Array(1000)) {
+    for (const _ of Array(1)) {
         const cmd = 'echo -n ' + str + ' | openssl sha256';
         const res = await execCommand(cmd);
         str = res.stdout.split(' ')[1].trim();
