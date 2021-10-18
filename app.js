@@ -1,9 +1,11 @@
-const fastify = require('fastify').fastify({logger: true});
+const fastify = require('fastify')({
+    logger: true
+});
 
-const fastifyStatic = require("fastify-static").default;
-const fastifyMysql = require("fastify-mysql").default;
-const fastifyCookie = require("fastify-cookie").default;
-const fastifyMultipart = require('fastify-multipart').default;
+const fastifyStatic = require("fastify-static");
+const fastifyMysql = require("fastify-mysql");
+const fastifyCookie = require("fastify-cookie");
+const fastifyMultipart = require('fastify-multipart');
 
 const path = require("path");
 const child_process = require("child_process");
@@ -36,18 +38,7 @@ fastify.register(fastifyMultipart);
 //// Helper functions
 
 async function getDbConn() {
-    return new Promise((resolve, reject) => {
-        fastify.mysql.getConnection(
-            (err, conn)=>{
-                if(err) {
-                    console.error(err)
-                    return reject(err);
-                }
-                resolve(conn);
-                return;
-            },
-        );
-    })
+    return fastify.mysql.getConnection();
 };
 
 async function getPasswordhash(salt, password) {
